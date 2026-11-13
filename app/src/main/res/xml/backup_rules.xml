@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <!-- Strict allowlist: only encrypted vault uploads & encrypted settings are included (when client-side encryption is enabled); key vaults & staging files remain excluded -->
+    <include domain="file" path="uploads" requireFlags="clientSideEncryption" />
+    <include domain="sharedpref" path="versepulse_encrypted_settings_prefs.xml" requireFlags="clientSideEncryption" />
+</full-backup-content>

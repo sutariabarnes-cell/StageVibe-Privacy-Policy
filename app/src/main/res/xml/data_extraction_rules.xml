@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<data-extraction-rules>
+    <!-- Strict allowlist: only encrypted vault uploads & encrypted settings are included; key vaults & staging files remain excluded -->
+    <cloud-backup disableIfNoEncryptionCapabilities="true">
+        <include domain="file" path="uploads" />
+        <include domain="sharedpref" path="versepulse_encrypted_settings_prefs.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <include domain="file" path="uploads" />
+        <include domain="sharedpref" path="versepulse_encrypted_settings_prefs.xml" />
+    </device-transfer>
+</data-extraction-rules>

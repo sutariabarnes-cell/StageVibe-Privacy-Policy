@@ -1,0 +1,974 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Default-Deny Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Core Primitives
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidOptionalString(data, key, maxLen) {
+      return !(key in data) || data[key] == null || (data[key] is string && data[key].size() <= maxLen);
+    }
+
+    // 1. Votes Collection Validation (Primary Leaderboard Aggregation Source)
+    function isValidVote(data) {
+      return data.performerId is string && data.performerId.size() >= 1 && data.performerId.size() <= 128 && data.performerId.matches('^[a-zA-Z0-9_\\-]+$') &&
+             data.performerName is string && data.performerName.size() >= 1 && data.performerName.size() <= 120 &&
+             data.targetId is string && data.targetId.size() >= 1 && data.targetId.size() <= 128 && data.targetId.matches('^[a-zA-Z0-9_\\-]+$') &&
+             data.targetType is string && data.targetType.size() >= 1 && data.targetType.size() <= 32 && data.targetType in ['PERFORMER', 'PERFORMANCE', 'SESSION', 'POLL'] &&
+             data.category is string && data.category.size() >= 1 && data.category.size() <= 32 && data.category in ['MUSIC', 'SPOKEN_WORD'] &&
+             data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.userName is string && data.userName.size() >= 1 && data.userName.size() <= 120 &&
+             data.voteDelta is int && data.voteDelta >= 1 && data.voteDelta <= 100 &&
+             data.voteTier is string && data.voteTier.size() >= 1 && data.voteTier.size() <= 32 && data.voteTier in ['VOTE', 'SUPER_VOTE', 'STANDING_OVATION', 'POLL_VOTE'] &&
+             data.status is string && data.status.size() >= 1 && data.status.size() <= 16 && data.status in ['COUNTED', 'REVOKED'] &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time &&
+             isValidOptionalString(data, 'genre', 80) &&
+             isValidOptionalString(data, 'stageTitle', 120) &&
+             isValidOptionalString(data, 'performanceId', 128) &&
+             isValidOptionalString(data, 'topPerformanceTitle', 160) &&
+             isValidOptionalString(data, 'sessionId', 128) &&
+             (!('avatarColorHex' in data) || data.avatarColorHex == null || data.avatarColorHex is int);
+    }
+
+    match /votes/{voteId} {
+      allow get: if isSignedIn() && isValidId(voteId) && (resource == null || existing().userId == request.auth.uid || existing().status == 'COUNTED');
+      allow list: if isSignedIn() && (existing().status == 'COUNTED' || existing().userId == request.auth.uid);
+
+      allow create: if isSignedIn() &&
+                       isValidId(voteId) &&
+                       incoming().keys().hasAll([
+                         'performerId', 'performerName', 'targetId', 'targetType', 'category',
+                         'userId', 'userName', 'voteDelta', 'voteTier', 'status', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'performerId', 'performerName', 'targetId', 'targetType', 'category',
+                         'genre', 'stageTitle', 'performanceId', 'topPerformanceTitle', 'sessionId',
+                         'userId', 'userName', 'voteDelta', 'voteTier', 'status', 'avatarColorHex',
+                         'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().userId == request.auth.uid &&
+                       incoming().status == 'COUNTED' &&
+                       isValidVote(incoming());
+
+      allow update: if isSignedIn() &&
+                       isValidId(voteId) &&
+                       isValidVote(incoming()) &&
+                       existing().userId == request.auth.uid &&
+                       incoming().userId == existing().userId &&
+                       incoming().performerId == existing().performerId &&
+                       incoming().targetId == existing().targetId &&
+                       incoming().createdAt == existing().createdAt &&
+                       existing().status == 'COUNTED' && (
+                         // Action 1: Update Vote Tally
+                         (incoming().status == 'COUNTED' &&
+                          incoming().diff(existing()).affectedKeys().hasOnly(['voteDelta', 'voteTier', 'updatedAt'])) ||
+                         // Action 2: Revoke Vote (Terminal State)
+                         (incoming().status == 'REVOKED' &&
+                          incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']))
+                       );
+
+      allow delete: if isSignedIn() && isValidId(voteId) && existing().userId == request.auth.uid;
+    }
+
+    // 2. Creator Profiles Validation
+    function isValidCreatorProfile(data) {
+      return data.creatorId is string && data.creatorId.size() >= 1 && data.creatorId.size() <= 128 && data.creatorId.matches('^[a-zA-Z0-9_\\-]+$') &&
+             data.ownerUid is string && data.ownerUid.size() >= 1 && data.ownerUid.size() <= 128 &&
+             data.artistName is string && data.artistName.size() >= 1 && data.artistName.size() <= 120 &&
+             data.bio is string && data.bio.size() <= 1000 &&
+             data.visibility is string && data.visibility.size() <= 16 && data.visibility in ['PUBLIC', 'PRIVATE'] &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time &&
+             isValidOptionalString(data, 'stageTitle', 120) &&
+             (!('primaryCategory' in data) || (data.primaryCategory is string && data.primaryCategory.size() <= 32 && data.primaryCategory in ['MUSIC', 'SPOKEN_WORD'])) &&
+             isValidOptionalString(data, 'avatarUrl', 500) &&
+             (!('avatarColorHex' in data) || data.avatarColorHex is int) &&
+             (!('audienceRating' in data) || ((data.audienceRating is number) && data.audienceRating >= 0 && data.audienceRating <= 5)) &&
+             (!('totalAudienceRatingsCount' in data) || (data.totalAudienceRatingsCount is int && data.totalAudienceRatingsCount >= 0)) &&
+             isValidOptionalString(data, 'socialSpotify', 200) &&
+             isValidOptionalString(data, 'socialInstagram', 200) &&
+             isValidOptionalString(data, 'socialYoutube', 200) &&
+             isValidOptionalString(data, 'socialWebsite', 200);
+    }
+
+    match /creator_profiles/{creatorId} {
+      allow get: if isSignedIn() && isValidId(creatorId) && (resource == null || existing().visibility == 'PUBLIC' || existing().ownerUid == request.auth.uid);
+      allow list: if isSignedIn() && (existing().visibility == 'PUBLIC' || existing().ownerUid == request.auth.uid);
+
+      allow create: if isSignedIn() &&
+                       isValidId(creatorId) &&
+                       incoming().creatorId == creatorId &&
+                       incoming().ownerUid == request.auth.uid &&
+                       incoming().keys().hasAll(['creatorId', 'ownerUid', 'artistName', 'bio', 'visibility', 'updatedAt']) &&
+                       incoming().keys().hasOnly([
+                         'creatorId', 'ownerUid', 'artistName', 'stageTitle', 'bio', 'primaryCategory',
+                         'avatarUrl', 'avatarColorHex', 'audienceRating', 'totalAudienceRatingsCount',
+                         'socialSpotify', 'socialInstagram', 'socialYoutube', 'socialWebsite',
+                         'visibility', 'updatedAt'
+                       ]) &&
+                       isValidCreatorProfile(incoming());
+
+      allow update: if isSignedIn() &&
+                       isValidId(creatorId) &&
+                       isValidCreatorProfile(incoming()) &&
+                       incoming().creatorId == existing().creatorId && (
+                         // Action 1: Owner Profile Edit
+                         (existing().ownerUid == request.auth.uid &&
+                          incoming().ownerUid == existing().ownerUid &&
+                          incoming().diff(existing()).affectedKeys().hasOnly([
+                            'artistName', 'stageTitle', 'bio', 'primaryCategory', 'avatarUrl',
+                            'avatarColorHex', 'socialSpotify', 'socialInstagram', 'socialYoutube',
+                            'socialWebsite', 'visibility', 'updatedAt'
+                          ])) ||
+                         // Action 2: Audience Rating Update on Public Profile
+                         (existing().visibility == 'PUBLIC' &&
+                          incoming().ownerUid == existing().ownerUid &&
+                          incoming().diff(existing()).affectedKeys().hasOnly([
+                            'audienceRating', 'totalAudienceRatingsCount', 'updatedAt'
+                          ]))
+                       );
+
+      allow delete: if isSignedIn() && isValidId(creatorId) && existing().ownerUid == request.auth.uid;
+    }
+
+    // 3. Live Sessions & Stage Moderation Validation
+    function isValidLiveSession(data) {
+      return data.id is string && data.id.size() >= 1 && data.id.size() <= 128 && data.id.matches('^[a-zA-Z0-9_\\-]+$') &&
+             data.creatorId is string && data.creatorId.size() >= 1 && data.creatorId.size() <= 128 &&
+             data.ownerUid is string && data.ownerUid.size() >= 1 && data.ownerUid.size() <= 128 &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 160 &&
+             data.isLive is bool &&
+             data.visibility is string && data.visibility.size() <= 16 && data.visibility in ['PUBLIC', 'PRIVATE'] &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time &&
+             isValidOptionalString(data, 'creatorName', 120) &&
+             (!('category' in data) || (data.category is string && data.category.size() <= 32 && data.category in ['MUSIC', 'SPOKEN_WORD'])) &&
+             isValidOptionalString(data, 'genre', 80) &&
+             isValidOptionalString(data, 'visualizerTheme', 64) &&
+             isValidOptionalString(data, 'audioType', 64) &&
+             isValidOptionalString(data, 'activePollId', 128) &&
+             (!('spectatorCount' in data) || (data.spectatorCount is int && data.spectatorCount >= 0 && data.spectatorCount <= 1000000)) &&
+             (!('slowModeSeconds' in data) || (data.slowModeSeconds is int && data.slowModeSeconds >= 0 && data.slowModeSeconds <= 120)) &&
+             (!('isChatLocked' in data) || data.isChatLocked is bool) &&
+             isValidOptionalString(data, 'pinnedAnnouncement', 240) &&
+             (!('fireCount' in data) || (data.fireCount is int && data.fireCount >= 0 && data.fireCount <= 100000000)) &&
+             (!('micDropCount' in data) || (data.micDropCount is int && data.micDropCount >= 0 && data.micDropCount <= 100000000)) &&
+             (!('ovationCount' in data) || (data.ovationCount is int && data.ovationCount >= 0 && data.ovationCount <= 100000000)) &&
+             (!('heartCount' in data) || (data.heartCount is int && data.heartCount >= 0 && data.heartCount <= 100000000)) &&
+             (!('encoreCount' in data) || (data.encoreCount is int && data.encoreCount >= 0 && data.encoreCount <= 100000000)) &&
+             (!('startedAt' in data) || data.startedAt is int);
+    }
+
+    function isValidReactionIncrement(inc, ex, key) {
+      return !(key in inc) || (
+        inc[key] is int &&
+        inc[key] >= (key in ex ? ex[key] : 0) &&
+        inc[key] <= (key in ex ? ex[key] : 0) + 25
+      );
+    }
+
+    function isValidLiveStageChatMessage(data) {
+      return data.id is string && data.id.size() >= 1 && data.id.size() <= 128 && data.id.matches('^[a-zA-Z0-9_\\-]+$') &&
+             data.sessionId is string && data.sessionId.size() >= 1 && data.sessionId.size() <= 128 && data.sessionId.matches('^[a-zA-Z0-9_\\-]+$') &&
+             data.sessionOwnerUid is string && data.sessionOwnerUid.size() >= 1 && data.sessionOwnerUid.size() <= 128 &&
+             data.senderUid is string && data.senderUid.size() >= 1 && data.senderUid.size() <= 128 &&
+             data.senderName is string && data.senderName.size() >= 1 && data.senderName.size() <= 120 &&
+             data.text is string && data.text.size() >= 1 && data.text.size() <= 400 &&
+             data.isCheer is bool &&
+             data.isHiddenByHost is bool &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time &&
+             (!('senderAvatarColorHex' in data) || data.senderAvatarColorHex == null || data.senderAvatarColorHex is int) &&
+             isValidOptionalString(data, 'badge', 32);
+    }
+
+    function liveSessionExistsBefore(sessionId) {
+      return exists(/databases/$(database)/documents/live_sessions/$(sessionId));
+    }
+
+    function liveSessionDocBefore(sessionId) {
+      return get(/databases/$(database)/documents/live_sessions/$(sessionId));
+    }
+
+    match /live_sessions/{sessionId} {
+      allow get: if isSignedIn() && isValidId(sessionId) && (resource == null || existing().visibility == 'PUBLIC' || existing().ownerUid == request.auth.uid);
+      allow list: if isSignedIn() && (existing().isLive == true || existing().visibility == 'PUBLIC' || existing().ownerUid == request.auth.uid);
+
+      allow create: if isSignedIn() &&
+                       isValidId(sessionId) &&
+                       incoming().id == sessionId &&
+                       incoming().ownerUid == request.auth.uid &&
+                       incoming().keys().hasAll(['id', 'creatorId', 'ownerUid', 'title', 'isLive', 'visibility', 'updatedAt']) &&
+                       incoming().keys().hasOnly([
+                         'id', 'creatorId', 'ownerUid', 'creatorName', 'title', 'category', 'genre',
+                         'visualizerTheme', 'audioType', 'activePollId', 'spectatorCount', 'isLive',
+                         'slowModeSeconds', 'isChatLocked', 'pinnedAnnouncement',
+                         'fireCount', 'micDropCount', 'ovationCount', 'heartCount', 'encoreCount',
+                         'visibility', 'startedAt', 'updatedAt'
+                       ]) &&
+                       isValidLiveSession(incoming());
+
+      allow update: if isSignedIn() &&
+                       isValidId(sessionId) &&
+                       isValidLiveSession(incoming()) &&
+                       incoming().id == existing().id &&
+                       incoming().ownerUid == existing().ownerUid &&
+                       incoming().creatorId == existing().creatorId && (
+                         // Action 1: Host Session & Moderation Control
+                         (existing().ownerUid == request.auth.uid &&
+                          incoming().diff(existing()).affectedKeys().hasOnly([
+                            'title', 'isLive', 'spectatorCount', 'activePollId', 'visibility',
+                            'slowModeSeconds', 'isChatLocked', 'pinnedAnnouncement',
+                            'fireCount', 'micDropCount', 'ovationCount', 'heartCount', 'encoreCount',
+                            'updatedAt'
+                          ])) ||
+                         // Action 2: Spectator Presence & Bounded Reaction Increment while Live
+                         (existing().isLive == true &&
+                          incoming().isLive == true &&
+                          isValidReactionIncrement(incoming(), existing(), 'fireCount') &&
+                          isValidReactionIncrement(incoming(), existing(), 'micDropCount') &&
+                          isValidReactionIncrement(incoming(), existing(), 'ovationCount') &&
+                          isValidReactionIncrement(incoming(), existing(), 'heartCount') &&
+                          isValidReactionIncrement(incoming(), existing(), 'encoreCount') &&
+                          incoming().diff(existing()).affectedKeys().hasOnly([
+                            'spectatorCount', 'fireCount', 'micDropCount', 'ovationCount',
+                            'heartCount', 'encoreCount', 'updatedAt'
+                          ]))
+                       );
+
+      allow delete: if isSignedIn() && isValidId(sessionId) && existing().ownerUid == request.auth.uid;
+
+      // Subcollection 3a: Host-Moderated Live Stage Chat Messages
+      match /chat_messages/{messageId} {
+        allow get: if isSignedIn() && isValidId(sessionId) && isValidId(messageId) && (
+          resource == null ||
+          existing().isHiddenByHost == false ||
+          existing().senderUid == request.auth.uid ||
+          existing().sessionOwnerUid == request.auth.uid
+        );
+        allow list: if isSignedIn() && (
+          existing().isHiddenByHost == false ||
+          existing().senderUid == request.auth.uid ||
+          existing().sessionOwnerUid == request.auth.uid
+        );
+
+        allow create: if isSignedIn() &&
+                         isValidId(sessionId) &&
+                         isValidId(messageId) &&
+                         incoming().id == messageId &&
+                         incoming().sessionId == sessionId &&
+                         incoming().senderUid == request.auth.uid &&
+                         incoming().isHiddenByHost == false &&
+                         incoming().keys().hasAll([
+                           'id', 'sessionId', 'sessionOwnerUid', 'senderUid', 'senderName',
+                           'text', 'isCheer', 'isHiddenByHost', 'createdAt', 'updatedAt'
+                         ]) &&
+                         incoming().keys().hasOnly([
+                           'id', 'sessionId', 'sessionOwnerUid', 'senderUid', 'senderName',
+                           'text', 'isCheer', 'isHiddenByHost', 'senderAvatarColorHex', 'badge',
+                           'createdAt', 'updatedAt'
+                         ]) &&
+                         isValidLiveStageChatMessage(incoming()) &&
+                         liveSessionExistsBefore(sessionId) &&
+                         liveSessionDocBefore(sessionId).data.isLive == true &&
+                         incoming().sessionOwnerUid == liveSessionDocBefore(sessionId).data.ownerUid &&
+                         (
+                           !('isChatLocked' in liveSessionDocBefore(sessionId).data) ||
+                           liveSessionDocBefore(sessionId).data.isChatLocked == false ||
+                           liveSessionDocBefore(sessionId).data.ownerUid == request.auth.uid
+                         );
+
+        allow update: if isSignedIn() &&
+                         isValidId(sessionId) &&
+                         isValidId(messageId) &&
+                         isValidLiveStageChatMessage(incoming()) &&
+                         existing().sessionOwnerUid == request.auth.uid &&
+                         incoming().id == existing().id &&
+                         incoming().sessionId == existing().sessionId &&
+                         incoming().sessionOwnerUid == existing().sessionOwnerUid &&
+                         incoming().senderUid == existing().senderUid &&
+                         incoming().createdAt == existing().createdAt &&
+                         // Action 1: Stage Host Hides or Restores Disruptive Chat Message
+                         incoming().diff(existing()).affectedKeys().hasOnly(['isHiddenByHost', 'updatedAt']);
+
+        allow delete: if isSignedIn() &&
+                         isValidId(sessionId) &&
+                         isValidId(messageId) && (
+                           existing().senderUid == request.auth.uid ||
+                           existing().sessionOwnerUid == request.auth.uid
+                         );
+      }
+    }
+
+    // 4. Poll Votes Validation
+    function isValidPollVote(data) {
+      return data.pollId is string && data.pollId.size() >= 1 && data.pollId.size() <= 128 && data.pollId.matches('^[a-zA-Z0-9_\\-]+$') &&
+             data.candidateId is string && data.candidateId.size() >= 1 && data.candidateId.size() <= 128 && data.candidateId.matches('^[a-zA-Z0-9_\\-]+$') &&
+             data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.createdAt is timestamp && data.createdAt <= request.time;
+    }
+
+    match /poll_votes/{voteId} {
+      allow get: if isSignedIn() && isValidId(voteId) && (resource == null || existing().userId == request.auth.uid);
+      allow list: if isSignedIn() && existing().userId == request.auth.uid;
+
+      allow create: if isSignedIn() &&
+                       isValidId(voteId) &&
+                       incoming().userId == request.auth.uid &&
+                       incoming().keys().hasAll(['pollId', 'candidateId', 'userId', 'createdAt']) &&
+                       incoming().keys().hasOnly(['pollId', 'candidateId', 'userId', 'createdAt']) &&
+                       isValidPollVote(incoming());
+
+      allow update: if isSignedIn() &&
+                       isValidId(voteId) &&
+                       isValidPollVote(incoming()) &&
+                       existing().userId == request.auth.uid &&
+                       incoming().userId == existing().userId &&
+                       incoming().pollId == existing().pollId &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['candidateId', 'createdAt']);
+
+      allow delete: if isSignedIn() && isValidId(voteId) && existing().userId == request.auth.uid;
+    }
+
+    // 5. Performances Validation
+    function isValidPerformance(data) {
+      return data.id is string && data.id.size() >= 1 && data.id.size() <= 128 && data.id.matches('^[a-zA-Z0-9_\\-]+$') &&
+             data.ownerUid is string && data.ownerUid.size() >= 1 && data.ownerUid.size() <= 128 &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 160 &&
+             data.artistId is string && data.artistId.size() >= 1 && data.artistId.size() <= 128 &&
+             data.category is string && data.category.size() <= 32 && data.category in ['MUSIC', 'SPOKEN_WORD'] &&
+             data.visibility is string && data.visibility.size() <= 16 && data.visibility in ['PUBLIC', 'PRIVATE'] &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time &&
+             isValidOptionalString(data, 'artistName', 120) &&
+             isValidOptionalString(data, 'avatarInitials', 8) &&
+             isValidOptionalString(data, 'genre', 80) &&
+             (!('durationSec' in data) || (data.durationSec is int && data.durationSec >= 1 && data.durationSec <= 7200)) &&
+             isValidOptionalString(data, 'lyricsOrScript', 10000) &&
+             isValidOptionalString(data, 'visualizerTheme', 64) &&
+             isValidOptionalString(data, 'audioType', 64) &&
+             isValidOptionalString(data, 'customAudioPath', 500) &&
+             isValidOptionalString(data, 'customVideoPath', 500) &&
+             (!('hasVideo' in data) || data.hasVideo is bool) &&
+             (!('viewsCount' in data) || (data.viewsCount is int && data.viewsCount >= 0)) &&
+             (!('likesCount' in data) || (data.likesCount is int && data.likesCount >= 0)) &&
+             (!('votesCount' in data) || (data.votesCount is int && data.votesCount >= 0)) &&
+             (!('cheersCount' in data) || (data.cheersCount is int && data.cheersCount >= 0)) &&
+             isValidOptionalString(data, 'pollId', 128) &&
+             (!('createdAtTimestamp' in data) || data.createdAtTimestamp is int);
+    }
+
+    match /performances/{perfId} {
+      allow get: if isSignedIn() && isValidId(perfId) && (resource == null || existing().visibility == 'PUBLIC' || existing().ownerUid == request.auth.uid);
+      allow list: if isSignedIn() && (existing().visibility == 'PUBLIC' || existing().ownerUid == request.auth.uid);
+
+      allow create: if isSignedIn() &&
+                       isValidId(perfId) &&
+                       incoming().id == perfId &&
+                       incoming().ownerUid == request.auth.uid &&
+                       incoming().keys().hasAll(['id', 'ownerUid', 'title', 'artistId', 'category', 'visibility', 'updatedAt']) &&
+                       incoming().keys().hasOnly([
+                         'id', 'ownerUid', 'title', 'artistId', 'artistName', 'avatarInitials',
+                         'category', 'genre', 'durationSec', 'lyricsOrScript', 'visualizerTheme',
+                         'audioType', 'customAudioPath', 'customVideoPath', 'hasVideo',
+                         'viewsCount', 'likesCount', 'votesCount',
+                         'cheersCount', 'pollId', 'createdAtTimestamp', 'visibility', 'updatedAt'
+                       ]) &&
+                       isValidPerformance(incoming());
+
+      allow update: if isSignedIn() &&
+                       isValidId(perfId) &&
+                       isValidPerformance(incoming()) &&
+                       incoming().id == existing().id &&
+                       incoming().ownerUid == existing().ownerUid &&
+                       incoming().artistId == existing().artistId && (
+                         // Action 1: Owner Track Update
+                         (existing().ownerUid == request.auth.uid &&
+                          incoming().diff(existing()).affectedKeys().hasOnly([
+                            'title', 'genre', 'lyricsOrScript', 'visualizerTheme',
+                            'customAudioPath', 'customVideoPath', 'hasVideo', 'visibility',
+                            'viewsCount', 'likesCount', 'votesCount', 'cheersCount', 'updatedAt'
+                          ])) ||
+                         // Action 2: Audience Engagement Counter Sync on Public Track
+                         (existing().visibility == 'PUBLIC' &&
+                          incoming().visibility == 'PUBLIC' &&
+                          incoming().diff(existing()).affectedKeys().hasOnly([
+                            'viewsCount', 'likesCount', 'votesCount', 'cheersCount', 'updatedAt'
+                          ]))
+                       );
+
+      allow delete: if isSignedIn() && isValidId(perfId) && existing().ownerUid == request.auth.uid;
+    }
+
+    // 6. Session Votes Validation
+    function isValidSessionVote(data) {
+      return data.voteId is string && data.voteId.size() >= 1 && data.voteId.size() <= 128 && data.voteId.matches('^[a-zA-Z0-9_\\-]+$') &&
+             data.sessionId is string && data.sessionId.size() >= 1 && data.sessionId.size() <= 128 && data.sessionId.matches('^[a-zA-Z0-9_\\-]+$') &&
+             data.performerId is string && data.performerId.size() >= 1 && data.performerId.size() <= 128 && data.performerId.matches('^[a-zA-Z0-9_\\-]+$') &&
+             data.performerName is string && data.performerName.size() >= 1 && data.performerName.size() <= 120 &&
+             data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.voteDelta is int && data.voteDelta >= 1 && data.voteDelta <= 1000 &&
+             data.voteType is string && data.voteType.size() >= 1 && data.voteType.size() <= 32 &&
+             data.status is string && data.status.size() <= 16 && data.status in ['COUNTED', 'REVOKED'] &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    match /session_votes/{voteId} {
+      allow get: if isSignedIn() && isValidId(voteId) && (resource == null || existing().userId == request.auth.uid || existing().status == 'COUNTED');
+      allow list: if isSignedIn() && (existing().status == 'COUNTED' || existing().userId == request.auth.uid);
+
+      allow create: if isSignedIn() &&
+                       isValidId(voteId) &&
+                       incoming().voteId == voteId &&
+                       incoming().userId == request.auth.uid &&
+                       incoming().status == 'COUNTED' &&
+                       incoming().keys().hasAll([
+                         'voteId', 'sessionId', 'performerId', 'performerName',
+                         'userId', 'voteDelta', 'voteType', 'status', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'voteId', 'sessionId', 'performerId', 'performerName',
+                         'userId', 'voteDelta', 'voteType', 'status', 'updatedAt'
+                       ]) &&
+                       isValidSessionVote(incoming());
+
+      allow update: if isSignedIn() &&
+                       isValidId(voteId) &&
+                       isValidSessionVote(incoming()) &&
+                       existing().userId == request.auth.uid &&
+                       incoming().userId == existing().userId &&
+                       incoming().sessionId == existing().sessionId &&
+                       incoming().performerId == existing().performerId &&
+                       existing().status == 'COUNTED' &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['voteDelta', 'voteType', 'status', 'updatedAt']);
+
+      allow delete: if isSignedIn() && isValidId(voteId) && existing().userId == request.auth.uid;
+    }
+
+    // 7. Performers Collection Validation
+    function isValidPerformer(data) {
+      return data.creatorId is string && data.creatorId.size() >= 1 && data.creatorId.size() <= 128 && data.creatorId.matches('^[a-zA-Z0-9_\\-]+$') &&
+             data.ownerUid is string && data.ownerUid.size() >= 1 && data.ownerUid.size() <= 128 &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
+             data.category is string && data.category.size() <= 32 && data.category in ['MUSIC', 'SPOKEN_WORD'] &&
+             data.visibility is string && data.visibility.size() <= 16 && data.visibility in ['PUBLIC', 'PRIVATE'] &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time &&
+             isValidOptionalString(data, 'stageTitle', 120) &&
+             isValidOptionalString(data, 'bio', 1000) &&
+             isValidOptionalString(data, 'avatarUrl', 500) &&
+             isValidOptionalString(data, 'socialSpotify', 200) &&
+             isValidOptionalString(data, 'socialInstagram', 200) &&
+             isValidOptionalString(data, 'socialYoutube', 200) &&
+             isValidOptionalString(data, 'socialWebsite', 200) &&
+             (!('avatarColorHex' in data) || data.avatarColorHex is int) &&
+             (!('rating' in data) || (data.rating is number && data.rating >= 0 && data.rating <= 5)) &&
+             (!('ratingCount' in data) || (data.ratingCount is int && data.ratingCount >= 0)) &&
+             (!('totalVotes' in data) || (data.totalVotes is int && data.totalVotes >= 0)) &&
+             (!('totalPerformances' in data) || (data.totalPerformances is int && data.totalPerformances >= 0)) &&
+             (!('totalSessions' in data) || (data.totalSessions is int && data.totalSessions >= 0));
+    }
+
+    match /performers/{performerId} {
+      allow get: if isSignedIn() && isValidId(performerId) && (resource == null || existing().visibility == 'PUBLIC' || existing().ownerUid == request.auth.uid);
+      allow list: if isSignedIn() && (existing().visibility == 'PUBLIC' || existing().ownerUid == request.auth.uid);
+
+      allow create: if isSignedIn() &&
+                       isValidId(performerId) &&
+                       incoming().creatorId == performerId &&
+                       incoming().ownerUid == request.auth.uid &&
+                       incoming().keys().hasAll(['creatorId', 'ownerUid', 'name', 'category', 'visibility', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly([
+                         'creatorId', 'ownerUid', 'name', 'stageTitle', 'bio', 'category',
+                         'avatarUrl', 'avatarColorHex', 'rating', 'ratingCount', 'totalVotes',
+                         'totalPerformances', 'totalSessions', 'socialSpotify', 'socialInstagram',
+                         'socialYoutube', 'socialWebsite', 'visibility', 'createdAt', 'updatedAt'
+                       ]) &&
+                       isValidPerformer(incoming());
+
+      allow update: if isSignedIn() &&
+                       isValidId(performerId) &&
+                       isValidPerformer(incoming()) &&
+                       incoming().ownerUid == existing().ownerUid &&
+                       incoming().creatorId == existing().creatorId &&
+                       incoming().createdAt == existing().createdAt && (
+                         // Action 1: Owner Performer Profile Update
+                         (existing().ownerUid == request.auth.uid &&
+                          incoming().diff(existing()).affectedKeys().hasOnly([
+                            'name', 'stageTitle', 'bio', 'category', 'avatarUrl', 'avatarColorHex',
+                            'rating', 'ratingCount', 'totalVotes', 'totalPerformances', 'totalSessions',
+                            'socialSpotify', 'socialInstagram', 'socialYoutube', 'socialWebsite',
+                            'visibility', 'updatedAt'
+                          ])) ||
+                         // Action 2: Audience Rating & Vote Counter Sync on Public Performer
+                         (existing().visibility == 'PUBLIC' &&
+                          incoming().visibility == 'PUBLIC' &&
+                          incoming().diff(existing()).affectedKeys().hasOnly([
+                            'rating', 'ratingCount', 'totalVotes', 'updatedAt'
+                          ]))
+                       );
+
+      allow delete: if isSignedIn() && isValidId(performerId) && existing().ownerUid == request.auth.uid;
+    }
+
+    // 8. User Accounts Validation (Performer & Spectator Registration)
+    function isValidUserAccount(data) {
+      return data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 && data.uid.matches('^[a-zA-Z0-9_\\-]+$') &&
+             data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 120 &&
+             data.role is string && data.role.size() <= 16 && data.role in ['SPECTATOR', 'CREATOR'] &&
+             data.primaryCategory is string && data.primaryCategory.size() <= 32 && data.primaryCategory in ['MUSIC', 'SPOKEN_WORD'] &&
+             data.registrationComplete is bool &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time &&
+             isValidOptionalString(data, 'email', 200) &&
+             isValidOptionalString(data, 'photoUrl', 500) &&
+             isValidOptionalString(data, 'stageName', 120) &&
+             isValidOptionalString(data, 'stageTitle', 120) &&
+             isValidOptionalString(data, 'bio', 1000);
+    }
+
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
+      allow list: if isSignedIn() && existing().uid == request.auth.uid;
+
+      allow create: if isSignedIn() &&
+                       isValidId(userId) &&
+                       request.auth.uid == userId &&
+                       incoming().uid == userId &&
+                       incoming().keys().hasAll([
+                         'uid', 'displayName', 'role', 'primaryCategory',
+                         'registrationComplete', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'uid', 'email', 'displayName', 'photoUrl', 'role',
+                         'stageName', 'stageTitle', 'bio', 'primaryCategory',
+                         'registrationComplete', 'createdAt', 'updatedAt'
+                       ]) &&
+                       isValidUserAccount(incoming());
+
+      allow update: if isSignedIn() &&
+                       isValidId(userId) &&
+                       request.auth.uid == userId &&
+                       existing().uid == request.auth.uid &&
+                       incoming().uid == existing().uid &&
+                       incoming().createdAt == existing().createdAt &&
+                       isValidUserAccount(incoming()) &&
+                       incoming().diff(existing()).affectedKeys().hasOnly([
+                         'email', 'displayName', 'photoUrl', 'role',
+                         'stageName', 'stageTitle', 'bio', 'primaryCategory',
+                         'registrationComplete', 'updatedAt'
+                       ]);
+
+      allow delete: if isSignedIn() && isValidId(userId) && request.auth.uid == userId && existing().uid == request.auth.uid;
+    }
+
+    // 9. Live Events Validation (Live Music & Spoken Word Events with Participant Counts)
+    function isValidLiveEvent(data) {
+      return data.ownerUid is string && data.ownerUid.size() >= 1 && data.ownerUid.size() <= 128 &&
+             data.hostId is string && data.hostId.size() >= 1 && data.hostId.size() <= 128 && data.hostId.matches('^[a-zA-Z0-9_\\-]+$') &&
+             data.hostName is string && data.hostName.size() >= 1 && data.hostName.size() <= 120 &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 160 &&
+             data.category is string && data.category.size() <= 32 && data.category in ['MUSIC', 'SPOKEN_WORD'] &&
+             data.participantCount is int && data.participantCount >= 0 && data.participantCount <= 1000000 &&
+             data.isLive is bool &&
+             data.visibility is string && data.visibility.size() <= 16 && data.visibility in ['PUBLIC', 'PRIVATE'] &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time &&
+             isValidOptionalString(data, 'genre', 80) &&
+             isValidOptionalString(data, 'description', 500) &&
+             isValidOptionalString(data, 'sessionId', 128);
+    }
+
+    match /events/{eventId} {
+      allow get: if isSignedIn() && isValidId(eventId) && (resource == null || existing().isLive == true || existing().visibility == 'PUBLIC' || existing().ownerUid == request.auth.uid);
+      allow list: if isSignedIn() && (existing().isLive == true || existing().visibility == 'PUBLIC' || existing().ownerUid == request.auth.uid);
+
+      allow create: if isSignedIn() &&
+                       isValidId(eventId) &&
+                       incoming().ownerUid == request.auth.uid &&
+                       incoming().keys().hasAll([
+                         'ownerUid', 'hostId', 'hostName', 'title', 'category',
+                         'participantCount', 'isLive', 'visibility', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'ownerUid', 'hostId', 'hostName', 'title', 'category',
+                         'genre', 'description', 'participantCount', 'isLive',
+                         'visibility', 'sessionId', 'createdAt', 'updatedAt'
+                       ]) &&
+                       isValidLiveEvent(incoming());
+
+      allow update: if isSignedIn() &&
+                       isValidId(eventId) &&
+                       isValidLiveEvent(incoming()) &&
+                       incoming().ownerUid == existing().ownerUid &&
+                       incoming().hostId == existing().hostId &&
+                       incoming().createdAt == existing().createdAt &&
+                       existing().isLive == true && (
+                         // Action 1: Host Event Control (edit metadata or end live event)
+                         (existing().ownerUid == request.auth.uid &&
+                          incoming().diff(existing()).affectedKeys().hasOnly([
+                            'title', 'genre', 'description', 'participantCount',
+                            'isLive', 'visibility', 'updatedAt'
+                          ])) ||
+                         // Action 2: Participant Join/Leave Counter Sync on Active Public Event
+                         (incoming().isLive == true &&
+                          existing().visibility == 'PUBLIC' &&
+                          incoming().visibility == 'PUBLIC' &&
+                          incoming().diff(existing()).affectedKeys().hasOnly([
+                            'participantCount', 'updatedAt'
+                          ]))
+                       );
+
+      allow delete: if isSignedIn() && isValidId(eventId) && existing().ownerUid == request.auth.uid;
+    }
+
+    // 10. Live Performance Stages & Spectator Voting Counters Validation
+    function isValidPerformanceStage(data) {
+      return data.ownerUid is string && data.ownerUid.size() >= 1 && data.ownerUid.size() <= 128 &&
+             data.hostId is string && data.hostId.size() >= 1 && data.hostId.size() <= 128 && data.hostId.matches('^[a-zA-Z0-9_\\-]+$') &&
+             data.hostName is string && data.hostName.size() >= 1 && data.hostName.size() <= 120 &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 160 &&
+             data.category is string && data.category.size() <= 32 && data.category in ['MUSIC', 'SPOKEN_WORD'] &&
+             data.status is string && data.status.size() <= 16 && data.status in ['WAITING', 'LIVE', 'ENDED'] &&
+             data.spectatorCount is int && data.spectatorCount >= 0 && data.spectatorCount <= 1000000 &&
+             data.totalStageVotes is int && data.totalStageVotes >= 0 && data.totalStageVotes <= 100000000 &&
+             data.totalBallotsCast is int && data.totalBallotsCast >= 0 && data.totalBallotsCast <= 100000000 &&
+             data.totalCheersCount is int && data.totalCheersCount >= 0 && data.totalCheersCount <= 100000000 &&
+             data.visibility is string && data.visibility.size() <= 16 && data.visibility in ['PUBLIC', 'PRIVATE'] &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time &&
+             isValidOptionalString(data, 'genre', 80) &&
+             isValidOptionalString(data, 'description', 500) &&
+             isValidOptionalString(data, 'activePerformerId', 128) &&
+             isValidOptionalString(data, 'activePerformerName', 120) &&
+             isValidOptionalString(data, 'activePerformanceId', 128) &&
+             isValidOptionalString(data, 'activePerformanceTitle', 160) &&
+             isValidOptionalString(data, 'visualizerTheme', 64) &&
+             isValidOptionalString(data, 'audioType', 64) &&
+             isValidOptionalString(data, 'activePollId', 128) &&
+             isValidOptionalString(data, 'sessionId', 128);
+    }
+
+    function isValidStageVotingCounter(data) {
+      return data.stageId is string && data.stageId.size() >= 1 && data.stageId.size() <= 128 && data.stageId.matches('^[a-zA-Z0-9_\\-]+$') &&
+             data.performerId is string && data.performerId.size() >= 1 && data.performerId.size() <= 128 && data.performerId.matches('^[a-zA-Z0-9_\\-]+$') &&
+             data.performerName is string && data.performerName.size() >= 1 && data.performerName.size() <= 120 &&
+             data.category is string && data.category.size() <= 32 && data.category in ['MUSIC', 'SPOKEN_WORD'] &&
+             data.totalVotes is int && data.totalVotes >= 0 && data.totalVotes <= 100000000 &&
+             data.standardVotesCount is int && data.standardVotesCount >= 0 && data.standardVotesCount <= 100000000 &&
+             data.superVotesCount is int && data.superVotesCount >= 0 && data.superVotesCount <= 100000000 &&
+             data.ovationVotesCount is int && data.ovationVotesCount >= 0 && data.ovationVotesCount <= 100000000 &&
+             data.ballotsCast is int && data.ballotsCast >= 0 && data.ballotsCast <= 100000000 &&
+             data.uniqueVoterCount is int && data.uniqueVoterCount >= 0 && data.uniqueVoterCount <= 10000000 &&
+             data.cheersCount is int && data.cheersCount >= 0 && data.cheersCount <= 100000000 &&
+             data.visibility is string && data.visibility.size() <= 16 && data.visibility in ['PUBLIC', 'PRIVATE'] &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time &&
+             isValidOptionalString(data, 'performanceId', 128) &&
+             isValidOptionalString(data, 'performanceTitle', 160) &&
+             isValidOptionalString(data, 'genre', 80) &&
+             isValidOptionalString(data, 'avatarInitials', 8) &&
+             (!('avatarColorHex' in data) || data.avatarColorHex == null || data.avatarColorHex is int) &&
+             (!('isActiveOnStage' in data) || data.isActiveOnStage is bool);
+    }
+
+    function isValidStageSpectatorVote(data) {
+      return data.stageId is string && data.stageId.size() >= 1 && data.stageId.size() <= 128 && data.stageId.matches('^[a-zA-Z0-9_\\-]+$') &&
+             data.performerId is string && data.performerId.size() >= 1 && data.performerId.size() <= 128 && data.performerId.matches('^[a-zA-Z0-9_\\-]+$') &&
+             data.performerName is string && data.performerName.size() >= 1 && data.performerName.size() <= 120 &&
+             data.category is string && data.category.size() <= 32 && data.category in ['MUSIC', 'SPOKEN_WORD'] &&
+             data.voterUid is string && data.voterUid.size() >= 1 && data.voterUid.size() <= 128 &&
+             data.voterName is string && data.voterName.size() >= 1 && data.voterName.size() <= 120 &&
+             data.voteWeight is int && data.voteWeight >= 1 && data.voteWeight <= 100 &&
+             data.voteTier is string && data.voteTier.size() <= 32 && data.voteTier in ['VOTE', 'SUPER_VOTE', 'STANDING_OVATION'] &&
+             data.status is string && data.status.size() <= 16 && data.status in ['COUNTED', 'REVOKED'] &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time &&
+             isValidOptionalString(data, 'performanceId', 128) &&
+             isValidOptionalString(data, 'performanceTitle', 160);
+    }
+
+    function stageDocAfter(stageId) {
+      return getAfter(/databases/$(database)/documents/stages/$(stageId));
+    }
+
+    function stageDocBefore(stageId) {
+      return get(/databases/$(database)/documents/stages/$(stageId));
+    }
+
+    function stageExistsAfter(stageId) {
+      return existsAfter(/databases/$(database)/documents/stages/$(stageId));
+    }
+
+    function stageExistsBefore(stageId) {
+      return exists(/databases/$(database)/documents/stages/$(stageId));
+    }
+
+    function stageIsLiveForVoting(stageId) {
+      return stageExistsBefore(stageId) &&
+             stageExistsAfter(stageId) &&
+             stageDocBefore(stageId).data.status == 'LIVE' &&
+             stageDocAfter(stageId).data.status == 'LIVE' &&
+             stageDocBefore(stageId).data.visibility == 'PUBLIC' &&
+             stageDocAfter(stageId).data.visibility == 'PUBLIC';
+    }
+
+    match /stages/{stageId} {
+      allow get: if isSignedIn() && isValidId(stageId) && (
+        resource == null ||
+        existing().status == 'LIVE' ||
+        existing().visibility == 'PUBLIC' ||
+        existing().ownerUid == request.auth.uid
+      );
+      allow list: if isSignedIn() && (
+        existing().status == 'LIVE' ||
+        existing().visibility == 'PUBLIC' ||
+        existing().ownerUid == request.auth.uid
+      );
+
+      allow create: if isSignedIn() &&
+                       isValidId(stageId) &&
+                       incoming().ownerUid == request.auth.uid &&
+                       incoming().status in ['WAITING', 'LIVE'] &&
+                       incoming().keys().hasAll([
+                         'ownerUid', 'hostId', 'hostName', 'title', 'category', 'status',
+                         'spectatorCount', 'totalStageVotes', 'totalBallotsCast', 'totalCheersCount',
+                         'visibility', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'ownerUid', 'hostId', 'hostName', 'title', 'category', 'genre',
+                         'description', 'status', 'activePerformerId', 'activePerformerName',
+                         'activePerformanceId', 'activePerformanceTitle', 'visualizerTheme',
+                         'audioType', 'activePollId', 'sessionId', 'spectatorCount',
+                         'totalStageVotes', 'totalBallotsCast', 'totalCheersCount',
+                         'visibility', 'createdAt', 'updatedAt'
+                       ]) &&
+                       isValidPerformanceStage(incoming());
+
+      allow update: if isSignedIn() &&
+                       isValidId(stageId) &&
+                       isValidPerformanceStage(incoming()) &&
+                       incoming().ownerUid == existing().ownerUid &&
+                       incoming().hostId == existing().hostId &&
+                       incoming().createdAt == existing().createdAt &&
+                       existing().status != 'ENDED' && (
+                         // Action 1: Stage Host Lifecycle & Performer Spotlight Control
+                         (existing().ownerUid == request.auth.uid &&
+                          incoming().diff(existing()).affectedKeys().hasOnly([
+                            'hostName', 'title', 'category', 'genre', 'description', 'status',
+                            'activePerformerId', 'activePerformerName', 'activePerformanceId',
+                            'activePerformanceTitle', 'visualizerTheme', 'audioType', 'activePollId',
+                            'spectatorCount', 'totalStageVotes', 'totalBallotsCast',
+                            'totalCheersCount', 'visibility', 'updatedAt'
+                          ])) ||
+                         // Action 2: Spectator Presence & Atomic Vote/Cheer Counter Sync on Active Public Stage
+                         (existing().status == 'LIVE' &&
+                          incoming().status == 'LIVE' &&
+                          existing().visibility == 'PUBLIC' &&
+                          incoming().visibility == 'PUBLIC' &&
+                          incoming().spectatorCount >= existing().spectatorCount - 1 &&
+                          incoming().spectatorCount <= existing().spectatorCount + 5 &&
+                          incoming().totalStageVotes >= existing().totalStageVotes - 100 &&
+                          incoming().totalStageVotes <= existing().totalStageVotes + 100 &&
+                          incoming().totalBallotsCast >= existing().totalBallotsCast - 1 &&
+                          incoming().totalBallotsCast <= existing().totalBallotsCast + 1 &&
+                          incoming().totalCheersCount >= existing().totalCheersCount &&
+                          incoming().totalCheersCount <= existing().totalCheersCount + 50 &&
+                          incoming().diff(existing()).affectedKeys().hasOnly([
+                            'spectatorCount', 'totalStageVotes', 'totalBallotsCast',
+                            'totalCheersCount', 'updatedAt'
+                          ]))
+                       );
+
+      allow delete: if isSignedIn() && isValidId(stageId) && existing().ownerUid == request.auth.uid;
+
+      // Subcollection 10a: Per-Performer Spectator Voting Counters
+      match /voting_counters/{performerId} {
+        allow get: if isSignedIn() && isValidId(stageId) && isValidId(performerId) && (
+          resource == null ||
+          existing().visibility == 'PUBLIC' ||
+          (stageExistsBefore(stageId) && stageDocBefore(stageId).data.ownerUid == request.auth.uid)
+        );
+        allow list: if isSignedIn() && (
+          existing().visibility == 'PUBLIC' ||
+          (stageExistsBefore(stageId) && stageDocBefore(stageId).data.ownerUid == request.auth.uid)
+        );
+
+        allow create: if isSignedIn() &&
+                         isValidId(stageId) &&
+                         isValidId(performerId) &&
+                         incoming().stageId == stageId &&
+                         incoming().performerId == performerId &&
+                         incoming().keys().hasAll([
+                           'stageId', 'performerId', 'performerName', 'category',
+                           'totalVotes', 'standardVotesCount', 'superVotesCount', 'ovationVotesCount',
+                           'ballotsCast', 'uniqueVoterCount', 'cheersCount',
+                           'visibility', 'createdAt', 'updatedAt'
+                         ]) &&
+                         incoming().keys().hasOnly([
+                           'stageId', 'performerId', 'performerName', 'category',
+                           'performanceId', 'performanceTitle', 'genre', 'avatarInitials',
+                           'avatarColorHex', 'isActiveOnStage', 'totalVotes',
+                           'standardVotesCount', 'superVotesCount', 'ovationVotesCount',
+                           'ballotsCast', 'uniqueVoterCount', 'cheersCount',
+                           'visibility', 'createdAt', 'updatedAt'
+                         ]) &&
+                         isValidStageVotingCounter(incoming()) &&
+                         stageExistsAfter(stageId) &&
+                         stageDocAfter(stageId).data.status in ['WAITING', 'LIVE'] && (
+                           // Host initializes performer voting counter with baseline or initial stats
+                           stageDocAfter(stageId).data.ownerUid == request.auth.uid ||
+                           // First spectator vote/cheer initializes counter on a LIVE PUBLIC stage within bounded delta
+                           (stageIsLiveForVoting(stageId) &&
+                            incoming().visibility == 'PUBLIC' &&
+                            incoming().totalVotes <= 100 &&
+                            incoming().standardVotesCount <= 1 &&
+                            incoming().superVotesCount <= 1 &&
+                            incoming().ovationVotesCount <= 1 &&
+                            incoming().ballotsCast <= 1 &&
+                            incoming().uniqueVoterCount <= 1 &&
+                            incoming().cheersCount <= 50)
+                         );
+
+        allow update: if isSignedIn() &&
+                         isValidId(stageId) &&
+                         isValidId(performerId) &&
+                         isValidStageVotingCounter(incoming()) &&
+                         incoming().stageId == existing().stageId &&
+                         incoming().performerId == existing().performerId &&
+                         incoming().createdAt == existing().createdAt &&
+                         stageExistsBefore(stageId) &&
+                         stageExistsAfter(stageId) &&
+                         stageDocBefore(stageId).data.status != 'ENDED' &&
+                         stageDocAfter(stageId).data.status != 'ENDED' && (
+                           // Action 1: Stage Host Counter & Spotlight Metadata Update
+                           (stageDocBefore(stageId).data.ownerUid == request.auth.uid &&
+                            incoming().diff(existing()).affectedKeys().hasOnly([
+                              'performerName', 'category', 'performanceId', 'performanceTitle',
+                              'genre', 'avatarInitials', 'avatarColorHex', 'isActiveOnStage',
+                              'totalVotes', 'standardVotesCount', 'superVotesCount', 'ovationVotesCount',
+                              'ballotsCast', 'uniqueVoterCount', 'cheersCount', 'visibility', 'updatedAt'
+                            ])) ||
+                           // Action 2: Spectator Atomic Vote/Revoke/Cheer Counter Increment on LIVE PUBLIC Stage
+                           (stageIsLiveForVoting(stageId) &&
+                            existing().visibility == 'PUBLIC' &&
+                            incoming().visibility == 'PUBLIC' &&
+                            incoming().totalVotes >= existing().totalVotes - 100 &&
+                            incoming().totalVotes <= existing().totalVotes + 100 &&
+                            incoming().standardVotesCount >= existing().standardVotesCount - 1 &&
+                            incoming().standardVotesCount <= existing().standardVotesCount + 1 &&
+                            incoming().superVotesCount >= existing().superVotesCount - 1 &&
+                            incoming().superVotesCount <= existing().superVotesCount + 1 &&
+                            incoming().ovationVotesCount >= existing().ovationVotesCount - 1 &&
+                            incoming().ovationVotesCount <= existing().ovationVotesCount + 1 &&
+                            incoming().ballotsCast >= existing().ballotsCast - 1 &&
+                            incoming().ballotsCast <= existing().ballotsCast + 1 &&
+                            incoming().uniqueVoterCount >= existing().uniqueVoterCount - 1 &&
+                            incoming().uniqueVoterCount <= existing().uniqueVoterCount + 1 &&
+                            incoming().cheersCount >= existing().cheersCount &&
+                            incoming().cheersCount <= existing().cheersCount + 50 &&
+                            incoming().diff(existing()).affectedKeys().hasOnly([
+                              'totalVotes', 'standardVotesCount', 'superVotesCount', 'ovationVotesCount',
+                              'ballotsCast', 'uniqueVoterCount', 'cheersCount', 'updatedAt'
+                            ]))
+                         );
+
+        allow delete: if isSignedIn() &&
+                         isValidId(stageId) &&
+                         isValidId(performerId) &&
+                         stageExistsBefore(stageId) &&
+                         stageDocBefore(stageId).data.ownerUid == request.auth.uid;
+      }
+
+      // Subcollection 10b: Authenticated Spectator Vote Ballots / Receipts
+      match /spectator_votes/{voteId} {
+        allow get: if isSignedIn() && isValidId(stageId) && isValidId(voteId) && (
+          resource == null ||
+          existing().voterUid == request.auth.uid ||
+          existing().status == 'COUNTED' ||
+          (stageExistsBefore(stageId) && stageDocBefore(stageId).data.ownerUid == request.auth.uid)
+        );
+        allow list: if isSignedIn() && (
+          existing().status == 'COUNTED' ||
+          existing().voterUid == request.auth.uid ||
+          (stageExistsBefore(stageId) && stageDocBefore(stageId).data.ownerUid == request.auth.uid)
+        );
+
+        allow create: if isSignedIn() &&
+                         isValidId(stageId) &&
+                         isValidId(voteId) &&
+                         stageIsLiveForVoting(stageId) &&
+                         incoming().stageId == stageId &&
+                         incoming().voterUid == request.auth.uid &&
+                         incoming().status == 'COUNTED' &&
+                         incoming().keys().hasAll([
+                           'stageId', 'performerId', 'performerName', 'category',
+                           'voterUid', 'voterName', 'voteWeight', 'voteTier',
+                           'status', 'createdAt', 'updatedAt'
+                         ]) &&
+                         incoming().keys().hasOnly([
+                           'stageId', 'performerId', 'performerName', 'category',
+                           'performanceId', 'performanceTitle', 'voterUid', 'voterName',
+                           'voteWeight', 'voteTier', 'status', 'createdAt', 'updatedAt'
+                         ]) &&
+                         isValidStageSpectatorVote(incoming());
+
+        allow update: if isSignedIn() &&
+                         isValidId(stageId) &&
+                         isValidId(voteId) &&
+                         stageIsLiveForVoting(stageId) &&
+                         isValidStageSpectatorVote(incoming()) &&
+                         existing().voterUid == request.auth.uid &&
+                         incoming().voterUid == existing().voterUid &&
+                         incoming().stageId == existing().stageId &&
+                         incoming().performerId == existing().performerId &&
+                         incoming().createdAt == existing().createdAt &&
+                         existing().status == 'COUNTED' && (
+                           // Action 1: Spectator Upgrades Vote Weight / Tier on Active Stage
+                           (incoming().status == 'COUNTED' &&
+                            incoming().diff(existing()).affectedKeys().hasOnly([
+                              'voteWeight', 'voteTier', 'updatedAt'
+                            ])) ||
+                           // Action 2: Spectator Revokes Vote (Terminal State)
+                           (incoming().status == 'REVOKED' &&
+                            incoming().diff(existing()).affectedKeys().hasOnly([
+                              'status', 'updatedAt'
+                            ]))
+                         );
+
+        allow delete: if isSignedIn() &&
+                         isValidId(stageId) &&
+                         isValidId(voteId) && (
+                           existing().voterUid == request.auth.uid ||
+                           (stageExistsBefore(stageId) && stageDocBefore(stageId).data.ownerUid == request.auth.uid)
+                         );
+      }
+    }
+
+    // Collection-group query support for users cleaning up their own spectator_votes and chat_messages
+    match /{path=**}/spectator_votes/{voteId} {
+      allow list: if isSignedIn() && existing().voterUid == request.auth.uid;
+    }
+
+    match /{path=**}/chat_messages/{messageId} {
+      allow list: if isSignedIn() && existing().senderUid == request.auth.uid;
+    }
+  }
+}

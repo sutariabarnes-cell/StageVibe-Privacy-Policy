@@ -1,0 +1,6 @@
+{
+  "name": "VersePulse",
+  "description": "Arena for music & spoken word creators and spectators with audio visuals and interactive voting polls.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

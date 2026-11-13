@@ -1,0 +1,452 @@
+{
+  "entities": {
+    "CreatorProfile": {
+      "title": "Creator Profile",
+      "description": "Public profile and metadata for stage artists and poets",
+      "type": "object",
+      "properties": {
+        "creatorId": { "type": "string" },
+        "ownerUid": { "type": "string" },
+        "artistName": { "type": "string" },
+        "stageTitle": { "type": "string" },
+        "bio": { "type": "string" },
+        "primaryCategory": { "type": "string", "enum": ["MUSIC", "SPOKEN_WORD"] },
+        "avatarUrl": { "type": "string" },
+        "avatarColorHex": { "type": "integer" },
+        "audienceRating": { "type": "number" },
+        "totalAudienceRatingsCount": { "type": "integer" },
+        "socialSpotify": { "type": "string" },
+        "socialInstagram": { "type": "string" },
+        "socialYoutube": { "type": "string" },
+        "socialWebsite": { "type": "string" },
+        "visibility": { "type": "string", "enum": ["PUBLIC", "PRIVATE"] },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Clients must submit FieldValue.serverTimestamp()" }
+      },
+      "required": ["creatorId", "ownerUid", "artistName", "bio", "visibility", "updatedAt"]
+    },
+    "LiveSession": {
+      "title": "Live Session",
+      "description": "Live streaming stage session metadata",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "creatorId": { "type": "string" },
+        "ownerUid": { "type": "string" },
+        "creatorName": { "type": "string" },
+        "title": { "type": "string" },
+        "category": { "type": "string", "enum": ["MUSIC", "SPOKEN_WORD"] },
+        "genre": { "type": "string" },
+        "visualizerTheme": { "type": "string" },
+        "audioType": { "type": "string" },
+        "activePollId": { "type": "string" },
+        "spectatorCount": { "type": "integer" },
+        "isLive": { "type": "boolean" },
+        "slowModeSeconds": { "type": "integer", "description": "Host-configured spectator chat cooldown in seconds (0..120)" },
+        "isChatLocked": { "type": "boolean", "description": "Whether spectator chat messages are paused by the stage host" },
+        "pinnedAnnouncement": { "type": "string", "description": "Optional stage announcement banner pinned by the host" },
+        "fireCount": { "type": "integer" },
+        "micDropCount": { "type": "integer" },
+        "ovationCount": { "type": "integer" },
+        "heartCount": { "type": "integer" },
+        "encoreCount": { "type": "integer" },
+        "visibility": { "type": "string", "enum": ["PUBLIC", "PRIVATE"] },
+        "startedAt": { "type": "integer" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Clients must submit FieldValue.serverTimestamp()" }
+      },
+      "required": ["id", "creatorId", "ownerUid", "title", "isLive", "visibility", "updatedAt"]
+    },
+    "LiveStageChatMessage": {
+      "title": "Live Stage Chat Message",
+      "description": "Real-time chat message inside a live session with host moderation support",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "sessionId": { "type": "string" },
+        "sessionOwnerUid": { "type": "string" },
+        "senderUid": { "type": "string" },
+        "senderName": { "type": "string" },
+        "text": { "type": "string" },
+        "isCheer": { "type": "boolean" },
+        "isHiddenByHost": { "type": "boolean" },
+        "senderAvatarColorHex": { "type": "integer" },
+        "badge": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Clients must submit FieldValue.serverTimestamp()" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Clients must submit FieldValue.serverTimestamp()" }
+      },
+      "required": [
+        "id",
+        "sessionId",
+        "sessionOwnerUid",
+        "senderUid",
+        "senderName",
+        "text",
+        "isCheer",
+        "isHiddenByHost",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "PollVote": {
+      "title": "Poll Vote",
+      "description": "Recorded spectator vote in a live competition poll",
+      "type": "object",
+      "properties": {
+        "pollId": { "type": "string" },
+        "candidateId": { "type": "string" },
+        "userId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Clients must submit FieldValue.serverTimestamp()" }
+      },
+      "required": ["pollId", "candidateId", "userId", "createdAt"]
+    },
+    "Performance": {
+      "title": "Performance Track",
+      "description": "Uploaded music and spoken word performance tracks with visualizer metadata",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "ownerUid": { "type": "string" },
+        "title": { "type": "string" },
+        "artistId": { "type": "string" },
+        "artistName": { "type": "string" },
+        "avatarInitials": { "type": "string" },
+        "category": { "type": "string", "enum": ["MUSIC", "SPOKEN_WORD"] },
+        "genre": { "type": "string" },
+        "durationSec": { "type": "integer" },
+        "lyricsOrScript": { "type": "string" },
+        "visualizerTheme": { "type": "string" },
+        "audioType": { "type": "string" },
+        "customAudioPath": { "type": "string" },
+        "customVideoPath": { "type": "string" },
+        "hasVideo": { "type": "boolean" },
+        "viewsCount": { "type": "integer" },
+        "likesCount": { "type": "integer" },
+        "votesCount": { "type": "integer" },
+        "cheersCount": { "type": "integer" },
+        "pollId": { "type": "string" },
+        "createdAtTimestamp": { "type": "integer" },
+        "visibility": { "type": "string", "enum": ["PUBLIC", "PRIVATE"] },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Clients must submit FieldValue.serverTimestamp()" }
+      },
+      "required": ["id", "ownerUid", "title", "artistId", "category", "visibility", "updatedAt"]
+    },
+    "SessionVote": {
+      "title": "Session Vote",
+      "description": "Real-time vote cast by an audience member for a performer in an active session",
+      "type": "object",
+      "properties": {
+        "voteId": { "type": "string" },
+        "sessionId": { "type": "string" },
+        "performerId": { "type": "string" },
+        "performerName": { "type": "string" },
+        "userId": { "type": "string" },
+        "voteDelta": { "type": "integer" },
+        "voteType": { "type": "string" },
+        "status": { "type": "string", "enum": ["COUNTED", "REVOKED"] },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Clients must submit FieldValue.serverTimestamp()" }
+      },
+      "required": ["voteId", "sessionId", "performerId", "performerName", "userId", "voteDelta", "voteType", "status", "updatedAt"]
+    },
+    "Performer": {
+      "title": "Performer",
+      "description": "Registered stage artist, musician, or spoken word poet",
+      "type": "object",
+      "properties": {
+        "creatorId": { "type": "string" },
+        "ownerUid": { "type": "string" },
+        "name": { "type": "string" },
+        "stageTitle": { "type": "string" },
+        "bio": { "type": "string" },
+        "category": { "type": "string", "enum": ["MUSIC", "SPOKEN_WORD"] },
+        "avatarUrl": { "type": "string" },
+        "avatarColorHex": { "type": "integer" },
+        "rating": { "type": "number" },
+        "ratingCount": { "type": "integer" },
+        "totalVotes": { "type": "integer" },
+        "totalPerformances": { "type": "integer" },
+        "totalSessions": { "type": "integer" },
+        "socialSpotify": { "type": "string" },
+        "socialInstagram": { "type": "string" },
+        "socialYoutube": { "type": "string" },
+        "socialWebsite": { "type": "string" },
+        "visibility": { "type": "string", "enum": ["PUBLIC", "PRIVATE"] },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Clients must submit FieldValue.serverTimestamp()" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Clients must submit FieldValue.serverTimestamp()" }
+      },
+      "required": ["creatorId", "ownerUid", "name", "category", "visibility", "createdAt", "updatedAt"]
+    },
+    "Vote": {
+      "title": "Vote",
+      "description": "Real-time audience vote cast for a performer or performance and aggregated by the Leaderboard UI",
+      "type": "object",
+      "properties": {
+        "performerId": { "type": "string", "description": "Unique creator/performer ID credited on the leaderboard" },
+        "performerName": { "type": "string", "description": "Display name of the performer" },
+        "targetId": { "type": "string", "description": "Target ID (performerId or performanceId)" },
+        "targetType": { "type": "string", "enum": ["PERFORMER", "PERFORMANCE", "SESSION", "POLL"] },
+        "category": { "type": "string", "enum": ["MUSIC", "SPOKEN_WORD"] },
+        "genre": { "type": "string" },
+        "stageTitle": { "type": "string" },
+        "performanceId": { "type": "string" },
+        "topPerformanceTitle": { "type": "string" },
+        "sessionId": { "type": "string" },
+        "userId": { "type": "string", "description": "Authenticated voter UID matching request.auth.uid" },
+        "userName": { "type": "string", "description": "Public display handle of the voter" },
+        "voteDelta": { "type": "integer", "description": "Positive integer vote weight (1..100)" },
+        "voteTier": { "type": "string", "enum": ["VOTE", "SUPER_VOTE", "STANDING_OVATION", "POLL_VOTE"] },
+        "status": { "type": "string", "enum": ["COUNTED", "REVOKED"] },
+        "avatarColorHex": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Clients must submit FieldValue.serverTimestamp()" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Clients must submit FieldValue.serverTimestamp()" }
+      },
+      "required": [
+        "performerId",
+        "performerName",
+        "targetId",
+        "targetType",
+        "category",
+        "userId",
+        "userName",
+        "voteDelta",
+        "voteTier",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "UserAccount": {
+      "title": "User Account",
+      "description": "Authenticated user account registration and arena role (Performer CREATOR or Audience SPECTATOR)",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Firebase Auth UID matching request.auth.uid" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoUrl": { "type": "string" },
+        "role": { "type": "string", "enum": ["SPECTATOR", "CREATOR"] },
+        "stageName": { "type": "string" },
+        "stageTitle": { "type": "string" },
+        "bio": { "type": "string" },
+        "primaryCategory": { "type": "string", "enum": ["MUSIC", "SPOKEN_WORD"] },
+        "registrationComplete": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Clients must submit FieldValue.serverTimestamp()" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Clients must submit FieldValue.serverTimestamp()" }
+      },
+      "required": [
+        "uid",
+        "displayName",
+        "role",
+        "primaryCategory",
+        "registrationComplete",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "LiveEvent": {
+      "title": "Live Event",
+      "description": "Live music and spoken word stage event with real-time participant counts",
+      "type": "object",
+      "properties": {
+        "ownerUid": { "type": "string", "description": "Authenticated host UID matching request.auth.uid" },
+        "hostId": { "type": "string", "description": "Creator or host identifier" },
+        "hostName": { "type": "string", "description": "Display name of the event host or performer" },
+        "title": { "type": "string", "description": "Title of the live music or spoken word event" },
+        "category": { "type": "string", "enum": ["MUSIC", "SPOKEN_WORD"] },
+        "genre": { "type": "string" },
+        "description": { "type": "string" },
+        "participantCount": { "type": "integer", "description": "Current number of active participants in the event" },
+        "isLive": { "type": "boolean" },
+        "visibility": { "type": "string", "enum": ["PUBLIC", "PRIVATE"] },
+        "sessionId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Clients must submit FieldValue.serverTimestamp()" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Clients must submit FieldValue.serverTimestamp()" }
+      },
+      "required": [
+        "ownerUid",
+        "hostId",
+        "hostName",
+        "title",
+        "category",
+        "participantCount",
+        "isLive",
+        "visibility",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "PerformanceStage": {
+      "title": "Performance Stage",
+      "description": "Live performance stage room managing active performers, spectator presence, and aggregated stage voting totals",
+      "type": "object",
+      "properties": {
+        "ownerUid": { "type": "string", "description": "Authenticated stage host UID matching request.auth.uid" },
+        "hostId": { "type": "string", "description": "Creator or host profile identifier" },
+        "hostName": { "type": "string", "description": "Display name of the stage host" },
+        "title": { "type": "string", "description": "Title of the live performance stage" },
+        "category": { "type": "string", "enum": ["MUSIC", "SPOKEN_WORD"] },
+        "genre": { "type": "string" },
+        "description": { "type": "string" },
+        "status": { "type": "string", "enum": ["WAITING", "LIVE", "ENDED"] },
+        "activePerformerId": { "type": "string", "description": "Currently spotlighted performer ID on stage" },
+        "activePerformerName": { "type": "string", "description": "Display name of the active performer on stage" },
+        "activePerformanceId": { "type": "string", "description": "Currently active performance track ID" },
+        "activePerformanceTitle": { "type": "string", "description": "Title of the active performance on stage" },
+        "visualizerTheme": { "type": "string" },
+        "audioType": { "type": "string" },
+        "activePollId": { "type": "string" },
+        "sessionId": { "type": "string" },
+        "spectatorCount": { "type": "integer", "description": "Real-time count of spectators watching the stage" },
+        "totalStageVotes": { "type": "integer", "description": "Cumulative weighted spectator votes cast across the stage" },
+        "totalBallotsCast": { "type": "integer", "description": "Total individual spectator vote ballots cast on the stage" },
+        "totalCheersCount": { "type": "integer", "description": "Total spectator cheer reactions sent on the stage" },
+        "visibility": { "type": "string", "enum": ["PUBLIC", "PRIVATE"] },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Clients must submit FieldValue.serverTimestamp()" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Clients must submit FieldValue.serverTimestamp()" }
+      },
+      "required": [
+        "ownerUid",
+        "hostId",
+        "hostName",
+        "title",
+        "category",
+        "status",
+        "spectatorCount",
+        "totalStageVotes",
+        "totalBallotsCast",
+        "totalCheersCount",
+        "visibility",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "StageVotingCounter": {
+      "title": "Stage Voting Counter",
+      "description": "Real-time per-performer spectator voting counter document within a live performance stage",
+      "type": "object",
+      "properties": {
+        "stageId": { "type": "string", "description": "Parent performance stage ID" },
+        "performerId": { "type": "string", "description": "Performer ID matching the counter document ID" },
+        "performerName": { "type": "string", "description": "Display name of the performer" },
+        "category": { "type": "string", "enum": ["MUSIC", "SPOKEN_WORD"] },
+        "performanceId": { "type": "string" },
+        "performanceTitle": { "type": "string" },
+        "genre": { "type": "string" },
+        "avatarInitials": { "type": "string" },
+        "avatarColorHex": { "type": "integer" },
+        "isActiveOnStage": { "type": "boolean" },
+        "totalVotes": { "type": "integer", "description": "Total weighted votes accumulated on this stage" },
+        "standardVotesCount": { "type": "integer", "description": "Count of +1 Standard Vote ballots" },
+        "superVotesCount": { "type": "integer", "description": "Count of +5 Super Vote ballots" },
+        "ovationVotesCount": { "type": "integer", "description": "Count of +10 Standing Ovation ballots" },
+        "ballotsCast": { "type": "integer", "description": "Total active vote ballots for this performer" },
+        "uniqueVoterCount": { "type": "integer", "description": "Distinct spectators who have voted for this performer on stage" },
+        "cheersCount": { "type": "integer", "description": "Total spectator cheers for this performer on stage" },
+        "visibility": { "type": "string", "enum": ["PUBLIC", "PRIVATE"] },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Clients must submit FieldValue.serverTimestamp()" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Clients must submit FieldValue.serverTimestamp()" }
+      },
+      "required": [
+        "stageId",
+        "performerId",
+        "performerName",
+        "category",
+        "totalVotes",
+        "standardVotesCount",
+        "superVotesCount",
+        "ovationVotesCount",
+        "ballotsCast",
+        "uniqueVoterCount",
+        "cheersCount",
+        "visibility",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "StageSpectatorVote": {
+      "title": "Stage Spectator Vote",
+      "description": "Authenticated spectator ballot receipt recorded on a live performance stage",
+      "type": "object",
+      "properties": {
+        "stageId": { "type": "string", "description": "Parent performance stage ID" },
+        "performerId": { "type": "string", "description": "Target performer ID receiving the spectator vote" },
+        "performerName": { "type": "string", "description": "Display name of the performer" },
+        "category": { "type": "string", "enum": ["MUSIC", "SPOKEN_WORD"] },
+        "performanceId": { "type": "string" },
+        "performanceTitle": { "type": "string" },
+        "voterUid": { "type": "string", "description": "Authenticated spectator UID matching request.auth.uid" },
+        "voterName": { "type": "string", "description": "Display handle of the voting spectator" },
+        "voteWeight": { "type": "integer", "description": "Positive integer vote weight (1..100)" },
+        "voteTier": { "type": "string", "enum": ["VOTE", "SUPER_VOTE", "STANDING_OVATION"] },
+        "status": { "type": "string", "enum": ["COUNTED", "REVOKED"] },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Clients must submit FieldValue.serverTimestamp()" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Clients must submit FieldValue.serverTimestamp()" }
+      },
+      "required": [
+        "stageId",
+        "performerId",
+        "performerName",
+        "category",
+        "voterUid",
+        "voterName",
+        "voteWeight",
+        "voteTier",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/creator_profiles/{creatorId}": {
+      "schema": { "$ref": "#/entities/CreatorProfile" },
+      "description": "Collection of creator profile documents"
+    },
+    "/live_sessions/{sessionId}": {
+      "schema": { "$ref": "#/entities/LiveSession" },
+      "description": "Collection of live stream stage metadata"
+    },
+    "/live_sessions/{sessionId}/chat_messages/{messageId}": {
+      "schema": { "$ref": "#/entities/LiveStageChatMessage" },
+      "description": "Subcollection of real-time live stage chat messages moderated by the stage host"
+    },
+    "/poll_votes/{voteId}": {
+      "schema": { "$ref": "#/entities/PollVote" },
+      "description": "Collection of voting poll results cast by audience spectators"
+    },
+    "/performances/{perfId}": {
+      "schema": { "$ref": "#/entities/Performance" },
+      "description": "Collection of published and uploaded creator music tracks"
+    },
+    "/session_votes/{voteId}": {
+      "schema": { "$ref": "#/entities/SessionVote" },
+      "description": "Collection of real-time audience votes cast during live performance sessions"
+    },
+    "/performers/{performerId}": {
+      "schema": { "$ref": "#/entities/Performer" },
+      "description": "Collection of registered stage performers, poets, and musicians"
+    },
+    "/votes/{voteId}": {
+      "schema": { "$ref": "#/entities/Vote" },
+      "description": "Collection of audience votes aggregated in real time for the performer leaderboard"
+    },
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserAccount" },
+      "description": "Collection of authenticated user accounts storing Performer and Spectator registration details"
+    },
+    "/events/{eventId}": {
+      "schema": { "$ref": "#/entities/LiveEvent" },
+      "description": "Collection of live music and spoken word events tracking event titles and current participant counts"
+    },
+    "/stages/{stageId}": {
+      "schema": { "$ref": "#/entities/PerformanceStage" },
+      "description": "Collection of live performance stages tracking host state, active performers, spectator presence, and total stage voting counters"
+    },
+    "/stages/{stageId}/voting_counters/{performerId}": {
+      "schema": { "$ref": "#/entities/StageVotingCounter" },
+      "description": "Subcollection of real-time per-performer spectator voting counters inside a performance stage"
+    },
+    "/stages/{stageId}/spectator_votes/{voteId}": {
+      "schema": { "$ref": "#/entities/StageSpectatorVote" },
+      "description": "Subcollection of authenticated spectator vote receipts cast on a live performance stage"
+    }
+  }
+}
